@@ -18,7 +18,7 @@ $ modinfo ./HelloDev.ko
 ```
 ###Remove module
 ```
-$ sudo rmmod HelloDev.ko
+$ sudo rmmod HelloDev
 ```
 ###Print kernel ring buffer
 ```
