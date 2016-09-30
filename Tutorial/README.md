@@ -1,26 +1,26 @@
-###Hello dev
+#Hello dev
 ##Driver creation
-#Compile source
+###Compile source
 ```
 $ make 
 ```
-#Insert module to kernel
+###Insert module to kernel
 ```
 $ sudo insmod ./HelloDev.ko
 ```
-#List module and get our module
+###List module and get our module
 ```
 $ lsmod | grep HelloDev
 ```
-#Get module's info
+###Get module's info
 ```
 $ modinfo ./HelloDev.ko
 ```
-#Remove module
+###Remove module
 ```
 $ sudo rmmod HelloDev.ko
 ```
-#Print kernel ring buffer
+###Print kernel ring buffer
 ```
 $ dmesg
 ```
