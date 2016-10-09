@@ -7,14 +7,19 @@ obj-m:=$(DRIVER_NAME).o
 all: ele784_driver
 
 ele784_driver:
-	@echo "Building the ELE784 Lab1: Ring buffer driver"
+	@echo "Building the ELE784 Tutorial: Hello driver"
 	@make -C $(KERNEL_DIR) SUBDIRS=$(PWD) modules
+
 load:
 	@echo "[ Root level ] insert module $(DRIVER_NAME)"
 	@sudo insmod $(DRIVER_NAME).ko
 	@$(MAKE) --silent info
+	@$(MAKE) --silent clean
+
 unload:
+	@echo "[ Root level ] remove module $(DRIVER_NAME)"
 	@sudo rmmod $(DRIVER_NAME)
+
 info:
 	@lsmod | grep $(DRIVER_NAME) || \
 	(echo "No module $(DRIVER_NAME)"; exit 1)
