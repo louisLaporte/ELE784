@@ -20,6 +20,8 @@ unload:
 	@echo "[ Root level ] remove module $(DRIVER_NAME)"
 	@sudo rmmod $(DRIVER_NAME)
 
+shell:
+	@echo $(SHELL)
 info:
 	@lsmod | grep $(DRIVER_NAME) || \
 	(echo "No module $(DRIVER_NAME)"; exit 1)
