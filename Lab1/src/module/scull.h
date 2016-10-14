@@ -1,11 +1,12 @@
-
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/fs.h>
 #include <linux/device.h>
 #include <linux/cdev.h>
-#include <asm/uaccess.h>
+#include <asm/uaccess.h>    /* copy_*_user */
+#include <asm/atomic.h>
+
 
 MODULE_LICENSE("Dual BSD/GPL");
 
