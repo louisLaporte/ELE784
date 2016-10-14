@@ -16,6 +16,7 @@ $ make unload
 open 3 terminal
 ###dmesg output (terminal 1)
 ```
+$ ln -s script/dmesg.sh dmesg.sh
 $ ./dmesg.sh
 ```
 ###writer (terminal 2)
