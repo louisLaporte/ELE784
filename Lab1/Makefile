@@ -1,6 +1,6 @@
 ## Module variables
 MODULE_DIR:=$(PWD)
-MODULE_NAME:=char_dev
+MODULE_NAME:=scull
 MODULE_OBJECT:=$(MODULE_DIR)/$(MODULE_NAME).ko
 ## Use bash as shell
 SHELL=/usr/bin/env bash
@@ -42,7 +42,7 @@ load:
 	@make --silent info  
 	@make --silent clean
 	sudo mknod /dev/$(MODULE_NAME) c 250 0
-	sudo chmod 666 /dev/$(MODULE_NAME)
+	sudo chmod 666 /dev/$(MODULE_NAME)_Node
 ################################################################################
 #                                                                              #
 #      Unload the module:                                                      #
@@ -53,7 +53,7 @@ load:
 unload:
 	@sudo rmmod $(MODULE_NAME) 2>/dev/null || \
 	    ($(ERROR) "No module" $(MODULE_NAME); exit 1)
-	sudo rm /dev/$(MODULE_NAME) 
+	sudo rm /dev/$(MODULE_NAME)_Node 
 ################################################################################
 #                                                                              #
 #      give info about module else print error                                 #
