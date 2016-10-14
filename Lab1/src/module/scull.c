@@ -8,14 +8,14 @@ struct file_operations scull_fops = {
 };
 
 int scull_open(struct inode *inode, struct file *filp) {
-        printk(KERN_WARNING"HelloDev_open (%s:%u)\n", __FUNCTION__, __LINE__);
+        printk(KERN_WARNING"scull_open (%s:%u)\n", __FUNCTION__, __LINE__);
         return 0;
 }
 
 int scull_release(struct inode *inode, struct file *filp) {
     //switch(filp->f_flags){
     //case:}
-        printk(KERN_WARNING"HelloDev_release (%s:%u)\n", __FUNCTION__, __LINE__);
+        printk(KERN_WARNING"scull_release (%s:%u)\n", __FUNCTION__, __LINE__);
         return 0;
 }
 
