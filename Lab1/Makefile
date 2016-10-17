@@ -51,6 +51,7 @@ load:
 #                                                                              #
 ################################################################################
 unload:
+	pkill -f $(MODULE_NAME)_Node
 	@sudo rmmod $(MODULE_NAME) 2>/dev/null || \
 	    ($(ERROR) "No module" $(MODULE_NAME); exit 1)
 #	sudo rm /dev/$(MODULE_NAME)_Node 
