@@ -5,9 +5,9 @@ MODULE_OBJECT:=$(MODULE_DIR)/$(MODULE_NAME).ko
 ## Use bash as shell
 SHELL=/usr/bin/env bash
 # Color log variables
-INFO   =echo -e "[ \e[32mInfo\e[0m ]"
-WARNING=echo -e "[ \e[33mWarning\e[0m ]"
-ERROR  =echo -e "[ \e[31mError\e[0m ]"
+INFO    = echo -e "[ \e[32mInfo\e[0m ]"
+WARNING = echo -e "[ \e[33mWarning\e[0m ]"
+ERROR   = echo -e "[ \e[31mError\e[0m ]"
 	
 
 SRC     :=  src/module/$(MODULE_NAME).c
@@ -53,7 +53,7 @@ load:
 unload:
 	@sudo rmmod $(MODULE_NAME) 2>/dev/null || \
 	    ($(ERROR) "No module" $(MODULE_NAME); exit 1)
-	sudo rm /dev/$(MODULE_NAME)_Node 
+#	sudo rm /dev/$(MODULE_NAME)_Node 
 ################################################################################
 #                                                                              #
 #      give info about module else print error                                 #
