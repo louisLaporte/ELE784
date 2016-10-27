@@ -13,7 +13,7 @@ ERROR   = echo -e "[ \e[31mError\e[0m ]"
 SRC     :=  src/module/$(MODULE_NAME).c
 $(MODULE_NAME)-objs = $(SRC:.c=.o)
 obj-m := $(MODULE_NAME).o
-KERNEL_DIR:="/usr/src/kernels/4.7.9-200.fc24.x86_64"
+KERNEL_DIR:="/usr/src/linux-headers-3.16.0"
 PWD:= $(shell pwd)
 EXTRA_CFLAGS := -I$(PWD)/src/module
 ################################################################################
@@ -35,7 +35,7 @@ all:
 #                      - change permission for the device rw-rw-rw             #
 #                                                                              #
 ################################################################################
-load:
+load: all
 	$(call FileExist, $(MODULE_OBJECT))
 #	$(call ModuleExist, $(MODULE_NAME))
 	sudo insmod $(MODULE_OBJECT)
@@ -51,7 +51,7 @@ load:
 #                                                                              #
 ################################################################################
 unload:
-	pkill -f $(MODULE_NAME)_Node
+	#pkill -f $(MODULE_NAME)_Node
 	@sudo rmmod $(MODULE_NAME) 2>/dev/null || \
 	    ($(ERROR) "No module" $(MODULE_NAME); exit 1)
 #	sudo rm /dev/$(MODULE_NAME)_Node 
@@ -75,14 +75,15 @@ clean:
 #      compile the user interface from src/application to usr/bin              #
 #                                                                              #
 ################################################################################
-app:
+app: 
+	[ -d "bin" ] || mkdir bin
 	gcc -o bin/ui src/application/main.c
 ################################################################################
 #                                                                              #
 #      run the user interface binary                                           #
 #                                                                              #
 ################################################################################
-run:
+run: app
 	./bin/ui
 ################################################################################
 #                                                                              #
