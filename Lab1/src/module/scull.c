@@ -1,11 +1,12 @@
 #include "scull.h"
 
 struct file_operations scull_fops = {
-	.owner	        =	THIS_MODULE,
-	.read		=	scull_read,
-	.write	        =	scull_write,
-	.open		=	scull_open,
-	.release	=	scull_release
+	.owner	    	=	THIS_MODULE,
+	.read			=	scull_read,
+	.write	    	=	scull_write,
+	.open			=	scull_open,
+	.release		=	scull_release,
+	.unlocked_ioctl = 	scull_ioctl 
 };
 
 int buf_in(struct ring_buffer *buf, unsigned char *data) {
@@ -14,22 +15,23 @@ int buf_in(struct ring_buffer *buf, unsigned char *data) {
   buf->buf_empty = 0;
   buf->buffer[buf->in_idx] = *data;
   buf->in_idx = (buf->in_idx + 1) % buf->buf_size;
+  buf->count++;
   if (buf->in_idx == buf->out_idx)
     buf->buf_full = 1;
   return 0;
 }
 
 int buf_out(struct ring_buffer *buf, unsigned char *data) {
-        if (buf->buf_empty)
-                return -1;
-        buf->buf_full = 0;
-        *data = buf->buffer[buf->out_idx];
-        buf->out_idx = (buf->out_idx + 1) % buf->buf_size;
-        if (buf->out_idx == buf->in_idx)
-                buf->buf_empty = 1;
-        return 0;
+    if (buf->buf_empty)
+            return -1;
+    buf->buf_full = 0;
+    *data = buf->buffer[buf->out_idx];
+    buf->out_idx = (buf->out_idx + 1) % buf->buf_size;
+    buf->count--;
+    if (buf->out_idx == buf->in_idx)
+            buf->buf_empty = 1;
+    return 0;
 }
-
 
 int scull_open(struct inode *inode, struct file *filp) {
 
@@ -86,22 +88,27 @@ static ssize_t scull_read(struct file *filp, char __user *buf, size_t count,
                 loff_t *f_pos) 
 {
         ssize_t result = 0;
-        char ch;
+        int i = 0;
 
-        if (num > 0) {
-                ch = tampon[--num];
+        if (!ring_buf.buf_empty) {
+                for(i = 0; i < count; i++){
+
+                	buf_out(&ring_buf, &scull_dev.read_buf[i]);
+
+                	printk(KERN_WARNING"scull_read (%s:%u) count = %d ch = %c\n",
+                        __FUNCTION__, __LINE__, i, scull_dev.read_buf[i]);
+                }
+
                 /*
                  * Copy data from kernel space to user space.
                  * Returns number of bytes that could not be copied.
                  * On success, this will be zero.
                  */
-                if(copy_to_user(buf, &ch, 1)) {
+                if(copy_to_user(buf, scull_dev.read_buf, count)) {
                         result = -EFAULT; /* Bad address */
                         goto out;
                 }
 
-                printk(KERN_WARNING"scull_read (%s:%u) count = %lu ch = %c\n",
-                        __FUNCTION__, __LINE__, count, ch);
                 return 1;
         } else {
                 printk(KERN_WARNING"scull_read (%s:%u) count = %lu ch = no char\n",
@@ -118,8 +125,9 @@ static ssize_t scull_write(struct file *filp, const char __user *buf,
 {
         //ssize_t result = -ENOMEM;
         ssize_t result = 0;
-	char ch;
-        if (num < 10) {
+		int i = 0;
+
+        if (!ring_buf.buf_full) {
                 /*
                  * Copy data from user space to kernel space.
                  * Returns number of bytes that could not be copied. 
@@ -127,13 +135,19 @@ static ssize_t scull_write(struct file *filp, const char __user *buf,
                  * If some data could not be copied, this function will pad 
                  * the copied data to the requested size using zero bytes.
                  */
-                if(copy_from_user(&ch, buf, 1)) {
+                if(copy_from_user(scull_dev.write_buf, buf, count)) {
                         result = -EFAULT; /* Bad address */
                         goto out;
                 }
-                tampon[num++] = ch;
-                printk(KERN_WARNING"scull_write (%s:%u) count = %lu ch = %c\n",
-                        __FUNCTION__, __LINE__, count, ch);
+
+                for(i = 0; i < count; i++){
+
+                	buf_in(&ring_buf, &scull_dev.write_buf[i]);
+
+                	printk(KERN_WARNING"scull_write (%s:%u) count = %d ch = %c\n",
+                        __FUNCTION__, __LINE__, i, scull_dev.write_buf[i]);
+                }
+
                 return 1;
         } else {
                 printk(KERN_WARNING"scull_write (%s:%u) count = %lu ch = no place\n",
@@ -144,7 +158,94 @@ out:
         return result;
 }
 
+long scull_ioctl(struct file *filp, unsigned int cmd, unsigned long arg) {
+    int err = 0;
+    int retval = 0;
+    int count = 0;
+    int nSize = 0;
+    int i;
+    unsigned char  *temp_rb, *temp_rb_del;
 
+    printk(KERN_WARNING"scull_ioctl\n");
+
+
+	if (_IOC_TYPE(cmd) != SCULL_IOC_MAGIC) 
+		return -ENOTTY;
+
+    if (_IOC_NR(cmd) > SCULL_IOC_MAXNR)
+            return -ENOTTY;
+
+    if (_IOC_DIR(cmd) & _IOC_READ)
+            err = !access_ok(VERIFY_WRITE, (void __user *)arg, _IOC_SIZE(cmd));
+    else if (_IOC_DIR(cmd) & _IOC_WRITE)
+            err = !access_ok(VERIFY_READ, (void __user *)arg, _IOC_SIZE(cmd));
+
+    if (err)
+            return -EFAULT;
+
+    switch(cmd) {
+            case SCULL_GETNUMDATA   :   retval = __put_user(ring_buf.count, (int __user *)arg);
+                                        break;
+
+            case SCULL_GETNUMREADER :   retval = __put_user(scull_dev.num_reader, (int __user *)arg);
+                                        break;
+
+            case SCULL_GETBUFSIZE   :   retval = __put_user(ring_buf.buf_size, (int __user *)arg);
+                                        break;
+
+            case SCULL_SETBUFSIZE   :   if (! capable (CAP_SYS_ADMIN))
+                                                return -EPERM;
+
+                                        retval = __get_user(nSize, (int __user *)arg);
+
+                                        count = ring_buf.count;
+
+                                        if (count > nSize)
+                                            return -ENOMEM;
+
+
+                                    	if (down_trylock(&scull_dev.sem_buf))
+                                            return -EAGAIN;
+
+	                                    ring_buf.buf_size = nSize;
+
+	                                    temp_rb = (unsigned char *) kmalloc(ring_buf.buf_size * sizeof(unsigned char), GFP_KERNEL);
+
+	                                    for (i = 0; i < count; i++)
+	                                            buf_out(&ring_buf, &temp_rb[i]);
+
+	                                    temp_rb_del = ring_buf.buffer;
+	                                    ring_buf.buffer = temp_rb;
+	                                    kfree(temp_rb_del);
+
+	                                    ring_buf.count = count;
+
+	                                    if (count == 0)
+	                                    {
+	                                            ring_buf.buf_full = 0;
+	                                            ring_buf.buf_empty = 1;
+	                                            ring_buf.in_idx = 0;
+
+	                                    }else if (count == nSize)
+	                                    {
+	                                            ring_buf.buf_full = 1;
+	                                            ring_buf.buf_empty = 0;
+	                                            ring_buf.in_idx = nSize;
+	                                    }else
+	                                    {
+	                                            ring_buf.buf_full = 0;
+	                                            ring_buf.buf_empty = 0;
+	                                            ring_buf.in_idx = nSize;
+	                                    }
+
+	                                    up(&scull_dev.sem_buf);
+
+										break;
+		default : return -ENOTTY;
+	}
+
+	return retval;
+}
 
 /*
  * TODO: Validate IS_ERR and PTR_ERR in err.h
@@ -154,28 +255,30 @@ static int __init scull_init (void) {
 
         int result = 0;
 
-        printk(KERN_ALERT"scull_init");
+        printk(KERN_ALERT"scull_init\n");
         /* ring buffer initialization */
-        ring_buf.buffer = (unsigned short*) 
-            kmalloc(DEFAULT_BUFSIZE * sizeof(unsigned short), GFP_KERNEL);
-        if(IS_ERR(ring_buf.buffer))
-                return ERR_PTR(-ENOMEM); /* Out of memory */
-        ring_buf.buf_empty = 1;
-        ring_buf.buf_full  = 0;
-        ring_buf.buf_size  = DEFAULT_BUFSIZE;
-        ring_buf.in_idx    = 0;
-        ring_buf.out_idx   = 0;
-        /* scull initialization */
-        scull_dev.read_buf = (unsigned short *) 
-                kmalloc(DEFAULT_RWSIZE * sizeof(unsigned short), GFP_KERNEL);
-        if(IS_ERR(scull_dev.read_buf))
-                return ERR_PTR(-ENOMEM); /* Out of memory */
-        scull_dev.write_buf = (unsigned short *) 
-                kmalloc(DEFAULT_RWSIZE * sizeof(unsigned short), GFP_KERNEL);
-        if(IS_ERR(scull_dev.write_buf))
-                return ERR_PTR(-ENOMEM); /* Out of memory */
-        scull_dev.num_writer = 0;
-        scull_dev.num_reader = 0;
+          ring_buf.buffer = (unsigned char*)
+              kmalloc(DEFAULT_BUFSIZE * sizeof(unsigned char), GFP_KERNEL);
+          if(!(ring_buf.buffer))
+                  return -ENOMEM; /* Out of memory */
+          ring_buf.buf_empty = 1;
+          ring_buf.buf_full  = 0;
+          ring_buf.buf_size  = DEFAULT_BUFSIZE;
+          ring_buf.count     = 0;
+          ring_buf.in_idx    = 0;
+          ring_buf.out_idx   = 0;
+          /* scull initialization */
+          scull_dev.read_buf = (unsigned char *)
+                  kmalloc(DEFAULT_RWSIZE * sizeof(unsigned char), GFP_KERNEL);
+          if(!scull_dev.read_buf)
+                  return -ENOMEM; /* Out of memory */
+          scull_dev.write_buf = (unsigned char *)
+                  kmalloc(DEFAULT_RWSIZE * sizeof(unsigned char), GFP_KERNEL);
+          if(!scull_dev.write_buf)
+                  return -ENOMEM; /* Out of memory */
+          scull_dev.num_writer = 0;
+          scull_dev.num_reader = 0;
+          sema_init(&scull_dev.sem_buf, 1);
         /*
          * Allocates a range of char device numbers. 
          * The major number will be chosen dynamically and returned 
