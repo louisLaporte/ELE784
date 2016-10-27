@@ -2,6 +2,18 @@
 #include <stdlib.h>
 #include <fcntl.h>
 
+main ( )
+ {
+        int i,fd;
+        char ch, write_buf[100], read_buf[100];
+        fd = open("/dev/char_dev", O_RDWR);
+        if (fd == -1)
+        {
+                printf("Error in opening file \n");
+                exit(-1);
+        }
+        printf ("Press r to read from device or w to write the device \n");
+        scanf ("%c", &ch);
 
 #define BUF_SIZE 256
 
@@ -58,6 +70,33 @@ int main (void)
                 case 'm':
                         print_menu();
                         break;
+				case 'i':
+printf ("Quelle commande voulez-vous utiliser ?\n");
+	printf ("0 - GetNumData\n");
+	printf ("1 - GetNumReader\n");
+	printf ("2 - GetBufSize\n");
+	printf ("3 - SetBufSize\n");
+						switch(ioctl_code)
+	{
+		case 0 : result = ioctl(fd, SCULL_GETNUMDATA, &arg);
+				printf("Nombre de données : %d\n", arg);
+				break;
+		case 1 : result = ioctl(fd, SCULL_GETNUMREADER, &arg);
+				printf("Nombre de lecteur : %d\n", arg);
+				break;
+		case 2 : result = ioctl(fd, SCULL_GETBUFSIZE, &arg);
+				printf("Taille du buffer : %d\n", arg);
+				break;
+		case 3 :
+				printf("Nouvelle taille de buffer :\n");
+				scanf("%d", &arg);
+				result = ioctl(fd, SCULL_SETBUFSIZE, &arg);
+				printf("Resultat de la commande : %d\n", result);
+				break;
+		default:
+				break;
+	}
+						break;
                 default:
                         break;
                 }

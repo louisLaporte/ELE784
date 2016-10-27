@@ -17,15 +17,24 @@
 
 MODULE_LICENSE("Dual BSD/GPL");
 
+
 #define DEFAULT_RWSIZE 16
 #define DEFAULT_BUFSIZE 256
 #define MAX_WRITER 1
-/*
- * ring_buffer
- */
+
+#define SCULL_IOC_MAGIC 'a'
+#define SCULL_IOC_MAXNR 3
+
+#define SCULL_GETNUMDATA	_IOR(SCULL_IOC_MAGIC, 0, int)
+#define SCULL_GETNUMREADER	_IOR(SCULL_IOC_MAGIC, 1, int)
+#define SCULL_GETBUFSIZE	_IOR(SCULL_IOC_MAGIC, 2, int)
+#define SCULL_SETBUFSIZE	_IOW(SCULL_IOC_MAGIC, 3, int)
+
+
 struct ring_buffer {
     unsigned int    in_idx   ;
     unsigned int    out_idx  ;
+    unsigned int 	count	 ;
     unsigned short  buf_full ;
     unsigned short  buf_empty;
     unsigned int    buf_size ;
@@ -49,12 +58,10 @@ int scull_open(struct inode *inode, struct file *filp);
 int scull_release(struct inode *inode, struct file *filp);
 static ssize_t scull_read(struct file *filp, char __user *buf, size_t count,
                 loff_t *f_pos);
-
 static ssize_t scull_write(struct file *filp, const char __user *buf,
                 size_t count, loff_t *f_pos);
 
-static long scull_ioctl (struct file *filp, unsigned int cmd, 
-                unsigned long arg);
+long scull_ioctl(struct file *filp, unsigned int cmd, unsigned long arg);
 
 static int   scull_init (void);
 static void  scull_exit (void);

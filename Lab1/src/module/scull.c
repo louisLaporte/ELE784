@@ -38,7 +38,6 @@ int buf_in(struct ring_buffer *buf, unsigned char *data) {
         return 0;
 }
 
-
 int buf_out(struct ring_buffer *buf, unsigned char *data) {
         if (buf->buf_empty)
                 return -1;
@@ -95,6 +94,8 @@ int scull_release(struct inode *inode, struct file *filp) {
                 scull_dev.num_reader--;
                 break;
         case O_WRONLY:
+                scull_dev.num_writer--;
+                break;
         case O_RDWR:
                 scull_dev.num_writer--;
                 break;
@@ -148,13 +149,13 @@ static ssize_t scull_read(struct file *filp, char __user *buf, size_t count,
             printk(KERN_ALERT"count %lu\n",count);
         }
 
+
         up(&scull_dev.sem_buf);
         return retval;
 }
 
 static ssize_t scull_write(struct file *filp, const char __user *buf, 
                 size_t count, loff_t *f_pos) 
-
 {
         //printk(KERN_ERR "count %lu | user: %s \n", count, &buf);
 
@@ -197,6 +198,94 @@ static ssize_t scull_write(struct file *filp, const char __user *buf,
 
         return retval; 
 }
+long scull_ioctl(struct file *filp, unsigned int cmd, unsigned long arg) {
+    int err = 0;
+    int retval = 0;
+    int count = 0;
+    int nSize = 0;
+    int i;
+    unsigned char  *temp_rb, *temp_rb_del;
+
+    printk(KERN_WARNING"scull_ioctl\n");
+
+
+	if (_IOC_TYPE(cmd) != SCULL_IOC_MAGIC) 
+		return -ENOTTY;
+
+    if (_IOC_NR(cmd) > SCULL_IOC_MAXNR)
+            return -ENOTTY;
+
+    if (_IOC_DIR(cmd) & _IOC_READ)
+            err = !access_ok(VERIFY_WRITE, (void __user *)arg, _IOC_SIZE(cmd));
+    else if (_IOC_DIR(cmd) & _IOC_WRITE)
+            err = !access_ok(VERIFY_READ, (void __user *)arg, _IOC_SIZE(cmd));
+
+    if (err)
+            return -EFAULT;
+
+    switch(cmd) {
+            case SCULL_GETNUMDATA   :   retval = __put_user(ring_buf.count, (int __user *)arg);
+                                        break;
+
+            case SCULL_GETNUMREADER :   retval = __put_user(scull_dev.num_reader, (int __user *)arg);
+                                        break;
+
+            case SCULL_GETBUFSIZE   :   retval = __put_user(ring_buf.buf_size, (int __user *)arg);
+                                        break;
+
+            case SCULL_SETBUFSIZE   :   if (! capable (CAP_SYS_ADMIN))
+                                                return -EPERM;
+
+                                        retval = __get_user(nSize, (int __user *)arg);
+
+                                        count = ring_buf.count;
+
+                                        if (count > nSize)
+                                            return -ENOMEM;
+
+
+                                    	if (down_trylock(&scull_dev.sem_buf))
+                                            return -EAGAIN;
+
+	                                    ring_buf.buf_size = nSize;
+
+	                                    temp_rb = (unsigned char *) kmalloc(ring_buf.buf_size * sizeof(unsigned char), GFP_KERNEL);
+
+	                                    for (i = 0; i < count; i++)
+	                                            buf_out(&ring_buf, &temp_rb[i]);
+
+	                                    temp_rb_del = ring_buf.buffer;
+	                                    ring_buf.buffer = temp_rb;
+	                                    kfree(temp_rb_del);
+
+	                                    ring_buf.count = count;
+
+	                                    if (count == 0)
+	                                    {
+	                                            ring_buf.buf_full = 0;
+	                                            ring_buf.buf_empty = 1;
+	                                            ring_buf.in_idx = 0;
+
+	                                    }else if (count == nSize)
+	                                    {
+	                                            ring_buf.buf_full = 1;
+	                                            ring_buf.buf_empty = 0;
+	                                            ring_buf.in_idx = nSize;
+	                                    }else
+	                                    {
+	                                            ring_buf.buf_full = 0;
+	                                            ring_buf.buf_empty = 0;
+	                                            ring_buf.in_idx = nSize;
+	                                    }
+
+	                                    up(&scull_dev.sem_buf);
+
+										break;
+		default : return -ENOTTY;
+	}
+
+	return retval;
+}
 
 static int __init scull_init (void) {
 
@@ -226,7 +315,7 @@ static int __init scull_init (void) {
         scull_dev.num_reader = 0;
         sema_init(&scull_dev.sem_buf, 1);
         /*
-         * Allocates a range of unsigned char device numbers. 
+         * Allocates a range of char device numbers. 
          * The major number will be chosen dynamically and returned 
          * (along with the first minor number) in dev. 
          * Returns zero or a negative error code.
@@ -291,14 +380,13 @@ static void __exit scull_exit (void) {
         kfree(ring_buf.buffer);
         kfree(scull_dev.read_buf);
         kfree(scull_dev.write_buf);
-        /* unregister device*/
+        /* remove device and class device */       
         cdev_del(&scull_dev.cdev);
         unregister_chrdev_region(scull_dev.dev, 1);
-        /* remove device and class device */       
         device_destroy (class_dev, scull_dev.dev);
         class_destroy(class_dev);
 
-        printk(KERN_ALERT"scull_exit\n");
+        printk(KERN_ALERT"scull_exit");
 }
 
 module_init(scull_init);

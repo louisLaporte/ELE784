@@ -15,7 +15,7 @@ ERROR   = echo -e "[ \e[31mError\e[0m ]"
 SRC     :=  src/module/$(MODULE_NAME).c
 $(MODULE_NAME)-objs = $(SRC:.c=.o)
 obj-m := $(MODULE_NAME).o
-KERNEL_DIR:=/usr/src/linux-headers-3.16.0
+KERNEL_DIR:="/usr/src/kernels/4.7.9-200.fc24.x86_64"
 PWD:= $(shell pwd)
 EXTRA_CFLAGS := -I$(PWD)/src/module
 ################################################################################
