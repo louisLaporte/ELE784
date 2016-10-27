@@ -2,6 +2,8 @@
 MODULE_DIR:=$(PWD)
 MODULE_NAME:=scull
 MODULE_OBJECT:=$(MODULE_DIR)/$(MODULE_NAME).ko
+## Binary
+BIN_DIR:="./bin"
 ## Use bash as shell
 SHELL=/usr/bin/env bash
 # Color log variables
@@ -35,7 +37,7 @@ all:
 #                      - change permission for the device rw-rw-rw             #
 #                                                                              #
 ################################################################################
-load:
+load: all
 	$(call FileExist, $(MODULE_OBJECT))
 #	$(call ModuleExist, $(MODULE_NAME))
 	sudo insmod $(MODULE_OBJECT)
@@ -46,12 +48,14 @@ load:
 ################################################################################
 #                                                                              #
 #      Unload the module:                                                      #
+#      			 - kill process(es) which use the device otherwise     #
+#      			 - the module is locked                                #
 #                        - if module exist it will be remove else exit         #
 #                        - remove device                                       #
 #                                                                              #
 ################################################################################
 unload:
-	pkill -f $(MODULE_NAME)_Node
+#	pkill -f $(MODULE_NAME)_Node
 	@sudo rmmod $(MODULE_NAME) 2>/dev/null || \
 	    ($(ERROR) "No module" $(MODULE_NAME); exit 1)
 #	sudo rm /dev/$(MODULE_NAME)_Node 
@@ -68,7 +72,7 @@ info:
 #                                                                              #
 ################################################################################
 clean:
-	-rm -f *.o *.ko .*.cmd .*.flags *.mod.c Module.symvers modules.order
+	-rm -f src/application/*.o src/module/*.o *.o *.ko .*.cmd .*.flags *.mod.c Module.symvers modules.order
 	-rm -rf .tmp_versions
 ################################################################################
 #                                                                              #
@@ -76,14 +80,15 @@ clean:
 #                                                                              #
 ################################################################################
 app:
-	gcc -o bin/ui src/application/main.c
+	@[ -d "$(BIN_DIR)" ] || mkdir $(BIN_DIR)
+	gcc -o $(BIN_DIR)/ui src/application/main.c
 ################################################################################
 #                                                                              #
 #      run the user interface binary                                           #
 #                                                                              #
 ################################################################################
-run:
-	./bin/ui
+run: app clean
+	$(BIN_DIR)/ui
 ################################################################################
 #                                                                              #
 #      @function: FileExist                                                    #

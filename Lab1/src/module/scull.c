@@ -1,5 +1,14 @@
 #include "scull.h"
+#define MIN(a,b) (((a)<(b))?(a):(b))
+#define MAX(a,b) (((a)>(b))?(a):(b))
+//IOCTL CMD
+#define MAGIC_NUMBER      'p'
+#define GET_NUM_DATA      _IOR(MAGIC_NUMBER,0,int)
+#define GET_NUM_READER    _IOR(MAGIC_NUMBER,1,int)
+#define GET_BUF_SIZE      _IOR(MAGIC_NUMBER,2,int)
+#define SET_BUF_SIZE      _IOW(MAGIC_NUMBER,3,int)
 
+#define DEBUG 0
 struct file_operations scull_fops = {
 	.owner	        =	THIS_MODULE,
 	.read		=	scull_read,
@@ -8,16 +17,27 @@ struct file_operations scull_fops = {
 	.release	=	scull_release
 };
 
-int buf_in(struct ring_buffer *buf, unsigned char *data) {
-  if (buf->buf_full)
-    return -1;
-  buf->buf_empty = 0;
-  buf->buffer[buf->in_idx] = *data;
-  buf->in_idx = (buf->in_idx + 1) % buf->buf_size;
-  if (buf->in_idx == buf->out_idx)
-    buf->buf_full = 1;
-  return 0;
+void debug_buf(struct ring_buffer *buf) {
+    printk(KERN_WARNING"buf->in_idx    %d\n",buf->in_idx   );
+    printk(KERN_WARNING"buf->out_idx   %d\n",buf->out_idx  );
+    printk(KERN_WARNING"buf->buf_full  %d\n",buf->buf_full );
+    printk(KERN_WARNING"buf->buf_empty %d\n",buf->buf_empty);
+    printk(KERN_WARNING"buf->buf_size  %d\n",buf->buf_size );
 }
+int buf_in(struct ring_buffer *buf, unsigned char *data) {
+        if (buf->buf_full)
+            return -1;
+        buf->buf_empty = 0;
+        buf->buffer[buf->in_idx] = *data;
+        buf->in_idx = (buf->in_idx + 1) % buf->buf_size;
+        if (buf->in_idx == buf->out_idx)
+              buf->buf_full = 1;
+#if DEBUG
+        debug_buf(buf);
+#endif
+        return 0;
+}
+
 
 int buf_out(struct ring_buffer *buf, unsigned char *data) {
         if (buf->buf_empty)
@@ -27,6 +47,9 @@ int buf_out(struct ring_buffer *buf, unsigned char *data) {
         buf->out_idx = (buf->out_idx + 1) % buf->buf_size;
         if (buf->out_idx == buf->in_idx)
                 buf->buf_empty = 1;
+#if DEBUG
+        debug_buf(buf);
+#endif
         return 0;
 }
 
@@ -36,6 +59,7 @@ int scull_open(struct inode *inode, struct file *filp) {
         printk(KERN_WARNING"scull_open\n");
 
         switch ((filp->f_flags & O_ACCMODE)) {
+        down_interruptible(&scull_dev.sem_buf);
         case O_RDONLY:
                 printk("Read only\n");
                 scull_dev.num_reader++;
@@ -55,6 +79,7 @@ int scull_open(struct inode *inode, struct file *filp) {
         default:
                 break;
         }
+        up(&scull_dev.sem_buf);
         printk(KERN_WARNING"nb: reader = %d | writer = %d ", 
                         scull_dev.num_reader, scull_dev.num_writer);
         return 0;
@@ -64,19 +89,19 @@ int scull_release(struct inode *inode, struct file *filp) {
         
         printk(KERN_WARNING"scull_release\n");
 
-        switch(filp->f_flags & O_ACCMODE) {
+        switch (filp->f_flags & O_ACCMODE) {
+        down_interruptible(&scull_dev.sem_buf);
         case O_RDONLY:
                 scull_dev.num_reader--;
                 break;
         case O_WRONLY:
-                scull_dev.num_writer--;
-                break;
         case O_RDWR:
                 scull_dev.num_writer--;
                 break;
         default:
                 break;
         }
+        up(&scull_dev.sem_buf);
         printk(KERN_WARNING"nb: reader = %d | writer = %d ", 
                         scull_dev.num_reader, scull_dev.num_writer);
         return 0;
@@ -85,41 +110,70 @@ int scull_release(struct inode *inode, struct file *filp) {
 static ssize_t scull_read(struct file *filp, char __user *buf, size_t count,
                 loff_t *f_pos) 
 {
-        ssize_t result = 0;
-        char ch;
 
-        if (num > 0) {
-                ch = tampon[--num];
-                /*
-                 * Copy data from kernel space to user space.
-                 * Returns number of bytes that could not be copied.
-                 * On success, this will be zero.
-                 */
-                if(copy_to_user(buf, &ch, 1)) {
-                        result = -EFAULT; /* Bad address */
-                        goto out;
-                }
-
-                printk(KERN_WARNING"scull_read (%s:%u) count = %lu ch = %c\n",
-                        __FUNCTION__, __LINE__, count, ch);
-                return 1;
-        } else {
-                printk(KERN_WARNING"scull_read (%s:%u) count = %lu ch = no char\n",
-                        __FUNCTION__, __LINE__, count);
-                return 0;
+        ssize_t  retval = 0; 
+        int i,  lu, done, max, to_user;
+        i = 0;
+        lu = 0;
+        done = 0;
+        max = 0;
+        to_user = 0;
+        
+        if ((filp->f_flags & O_NONBLOCK) == 0) {
+                if (down_trylock(&scull_dev.sem_buf))
+                        return -EAGAIN;
         }
-out:
-        return result;
+        else if (down_interruptible(&scull_dev.sem_buf))
+                return -ERESTARTSYS;
 
+        while (count > 0) {
+            /* max buffer size */
+            max = count > DEFAULT_RWSIZE ? DEFAULT_RWSIZE : count;
+            printk(KERN_ALERT"%s to_user: %d\n", __FUNCTION__, max);
+
+            for (i = 0; i < max; i++) {
+                    /* dequeue buffer */
+                    if (buf_out(&ring_buf, &scull_dev.read_buf[i]) == -1)
+                            break;
+                    to_user++;
+                    printk(KERN_ALERT"to_user: %d\n",to_user);
+            }
+            if (copy_to_user(buf, scull_dev.read_buf, to_user)) {
+                    retval = -EFAULT;
+                    up (&scull_dev.sem_buf);
+            }
+            buf += to_user;
+            to_user = 0;
+            count -= max;
+            printk(KERN_ALERT"count %lu\n",count);
+        }
+
+        up(&scull_dev.sem_buf);
+        return retval;
 }
 
 static ssize_t scull_write(struct file *filp, const char __user *buf, 
                 size_t count, loff_t *f_pos) 
+
 {
-        //ssize_t result = -ENOMEM;
-        ssize_t result = 0;
-	char ch;
-        if (num < 10) {
+        //printk(KERN_ERR "count %lu | user: %s \n", count, &buf);
+
+        ssize_t retval = 0;
+        int i, done, max;
+        i = 0;
+        done = 0;
+        max = 0;
+        
+        if ((filp->f_flags & O_NONBLOCK) == 0) {
+                if (down_trylock(&scull_dev.sem_buf))
+                        return -EAGAIN;
+        }
+        else if (down_interruptible(&scull_dev.sem_buf))
+                return -ERESTARTSYS;
+
+        while (count > 0) {
+                max = count > DEFAULT_RWSIZE ? DEFAULT_RWSIZE : count;
+                printk(KERN_ALERT"%s -- count %lu\n", __FUNCTION__, count);
                 /*
                  * Copy data from user space to kernel space.
                  * Returns number of bytes that could not be copied. 
@@ -127,63 +181,58 @@ static ssize_t scull_write(struct file *filp, const char __user *buf,
                  * If some data could not be copied, this function will pad 
                  * the copied data to the requested size using zero bytes.
                  */
-                if(copy_from_user(&ch, buf, 1)) {
-                        result = -EFAULT; /* Bad address */
-                        goto out;
+                if (copy_from_user(&scull_dev.write_buf[0], buf, max)) {
+                        retval = -EFAULT;
                 }
-                tampon[num++] = ch;
-                printk(KERN_WARNING"scull_write (%s:%u) count = %lu ch = %c\n",
-                        __FUNCTION__, __LINE__, count, ch);
-                return 1;
-        } else {
-                printk(KERN_WARNING"scull_write (%s:%u) count = %lu ch = no place\n",
-                        __FUNCTION__, __LINE__, count);
-                return 0;
+                for (i = 0; i < max; i++) {
+                        if (buf_in(&ring_buf, &scull_dev.write_buf[i]) == -1)
+                                break;
+                        printk(KERN_ALERT"%s -- i %d\n", __FUNCTION__, i);
+                }
+                count -= max;
+
         }
-out:
-        return result;
+
+        up(&scull_dev.sem_buf);
+
+        return retval; 
 }
 
-
-
-/*
- * TODO: Validate IS_ERR and PTR_ERR in err.h
- *       are same to if(!ptr){res = -ENOMEM; goto err_ptr} 
- */
 static int __init scull_init (void) {
 
-        int result = 0;
+        int retval = 0;
 
-        printk(KERN_ALERT"scull_init");
+        printk(KERN_ALERT"\nscull_init\n");
         /* ring buffer initialization */
-        ring_buf.buffer = (unsigned short*) 
-            kmalloc(DEFAULT_BUFSIZE * sizeof(unsigned short), GFP_KERNEL);
-        if(IS_ERR(ring_buf.buffer))
-                return ERR_PTR(-ENOMEM); /* Out of memory */
+        ring_buf.buffer = (unsigned char*) 
+            kmalloc(DEFAULT_BUFSIZE * sizeof(unsigned char), GFP_KERNEL);
+        if (!ring_buf.buffer)
+                return -ENOMEM; 
         ring_buf.buf_empty = 1;
         ring_buf.buf_full  = 0;
         ring_buf.buf_size  = DEFAULT_BUFSIZE;
         ring_buf.in_idx    = 0;
         ring_buf.out_idx   = 0;
         /* scull initialization */
-        scull_dev.read_buf = (unsigned short *) 
-                kmalloc(DEFAULT_RWSIZE * sizeof(unsigned short), GFP_KERNEL);
-        if(IS_ERR(scull_dev.read_buf))
-                return ERR_PTR(-ENOMEM); /* Out of memory */
-        scull_dev.write_buf = (unsigned short *) 
-                kmalloc(DEFAULT_RWSIZE * sizeof(unsigned short), GFP_KERNEL);
-        if(IS_ERR(scull_dev.write_buf))
-                return ERR_PTR(-ENOMEM); /* Out of memory */
+        scull_dev.read_buf = (unsigned char *) 
+                kmalloc(DEFAULT_RWSIZE * sizeof(unsigned char), GFP_KERNEL);
+        if (!scull_dev.read_buf)
+                return -ENOMEM;
+        scull_dev.write_buf = (unsigned char *) 
+                kmalloc(DEFAULT_RWSIZE * sizeof(unsigned char), GFP_KERNEL);
+        if (!scull_dev.write_buf)
+                return -ENOMEM;
         scull_dev.num_writer = 0;
         scull_dev.num_reader = 0;
+        sema_init(&scull_dev.sem_buf, 1);
         /*
-         * Allocates a range of char device numbers. 
+         * Allocates a range of unsigned char device numbers. 
          * The major number will be chosen dynamically and returned 
          * (along with the first minor number) in dev. 
          * Returns zero or a negative error code.
          */
-        result = alloc_chrdev_region(&scull_dev.dev, 0, 1, "scull");
-        if(result < 0) {
+        retval = alloc_chrdev_region(&scull_dev.dev, 0, 1, "scull");
+        if (retval < 0) {
                 printk(KERN_ERR "failed to alloc chrdev region\n");
                 goto fail_alloc_chrdev_region;
         }
@@ -194,8 +243,8 @@ static int __init scull_init (void) {
          * by making a call to class_destroy.
          */
         class_dev = class_create(THIS_MODULE, "scull_class");
-        if(!class_dev) {
-                result = -EEXIST; /* File exists */
+        if (!class_dev) {
+                retval = -EEXIST; /* File exists */
                 printk(KERN_ERR "failed to create class\n");
                 goto fail_create_class;
         }
@@ -212,7 +261,7 @@ static int __init scull_init (void) {
          * this pointer.
          */
         if(!(device_create(class_dev, NULL, scull_dev.dev, NULL, "scull_Node"))) {
-                result = -EINVAL; /* Invalid argument */
+                retval = -EINVAL; /* Invalid argument */
                 printk(KERN_ERR "failed to create device\n");
                 goto fail_create_device;
         }
@@ -234,7 +283,7 @@ fail_alloc_chrdev_region:
         kfree(ring_buf.buffer);
         kfree(scull_dev.read_buf);
         kfree(scull_dev.write_buf);
-        return result;
+        return retval;
 }
 
 static void __exit scull_exit (void) {
@@ -242,13 +291,14 @@ static void __exit scull_exit (void) {
         kfree(ring_buf.buffer);
         kfree(scull_dev.read_buf);
         kfree(scull_dev.write_buf);
-        /* remove device and class device */       
+        /* unregister device*/
         cdev_del(&scull_dev.cdev);
         unregister_chrdev_region(scull_dev.dev, 1);
+        /* remove device and class device */       
         device_destroy (class_dev, scull_dev.dev);
         class_destroy(class_dev);
 
-        printk(KERN_ALERT"scull_exit");
+        printk(KERN_ALERT"scull_exit\n");
 }
 
 module_init(scull_init);
