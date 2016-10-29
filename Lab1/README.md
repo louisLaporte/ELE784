@@ -12,18 +12,18 @@ $ make load
 $ make unload
 ```
 ##Driver usage
-
-open 3 terminal
 ###dmesg output (terminal 1)
 ```
 $ ln -s script/dmesg.sh dmesg.sh
 $ ./dmesg.sh
 ```
-###writer (terminal 2)
+###User interface
+normal mode
 ```
-$ echo "abcde" >> /dev/scull_Node
+make run
 ```
-###reader (terminal 3)
+root mode
 ```
-$ tail -f /dev/scull_Node
+make root
 ```
+

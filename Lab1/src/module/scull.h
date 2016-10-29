@@ -2,30 +2,27 @@
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/fs.h>
-#include <linux/device.h>      /* *_create */
+#include <linux/device.h>
 #include <linux/cdev.h>
-#include <asm/uaccess.h>       /* copy_*_user     */
+#include <asm/uaccess.h>    /* copy_*_user */
 #include <asm/atomic.h>
 #include <linux/errno.h>
-#include <linux/err.h>         /* IS_PTR PTR_ERR */
-#include <linux/slab.h>        /* kmalloc        */
-#include <linux/semaphore.h>
-#include <linux/spinlock.h>
-#include <linux/capability.h>
+#include <linux/err.h>
+#include <linux/slab.h>
+
 
 MODULE_LICENSE("Dual BSD/GPL");
 
 #define DEFAULT_RWSIZE 16
 #define DEFAULT_BUFSIZE 256
 #define MAX_WRITER 1
-
 #define SCULL_IOC_MAGIC 'a'
 #define SCULL_IOC_MAXNR 3
 
-#define SCULL_GETNUMDATA	_IOR(SCULL_IOC_MAGIC, 0, int)
-#define SCULL_GETNUMREADER	_IOR(SCULL_IOC_MAGIC, 1, int)
-#define SCULL_GETBUFSIZE	_IOR(SCULL_IOC_MAGIC, 2, int)
-#define SCULL_SETBUFSIZE	_IOW(SCULL_IOC_MAGIC, 3, int)
+#define SCULL_GETNUMDATA        _IOR(SCULL_IOC_MAGIC, 0, int)
+#define SCULL_GETNUMREADER      _IOR(SCULL_IOC_MAGIC, 1, int)
+#define SCULL_GETBUFSIZE        _IOR(SCULL_IOC_MAGIC, 2, int)
+#define SCULL_SETBUFSIZE        _IOW(SCULL_IOC_MAGIC, 3, int)
 
 
 struct ring_buffer {
@@ -66,5 +63,5 @@ static void  scull_exit (void);
 
 
 int scull_var = 0;
-module_param(scull_var, int, S_IRUGO);
+//module_param(scull_var, int, S_IRUGO);
 EXPORT_SYMBOL_GPL(scull_var);

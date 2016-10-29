@@ -2,14 +2,15 @@
 #include <stdlib.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
+#include <string.h>
+
 
 #define SCULL_IOC_MAGIC 'a'
-#define SCULL_IOC_MAXNR 3
 
-#define SCULL_GETNUMDATA _IOR(SCULL_IOC_MAGIC, 0, int)
-#define SCULL_GETNUMREADER _IOR(SCULL_IOC_MAGIC, 1, int)
-#define SCULL_GETBUFSIZE _IOR(SCULL_IOC_MAGIC, 2, int)
-#define SCULL_SETBUFSIZE _IOW(SCULL_IOC_MAGIC, 3, int)
+#define SCULL_GETNUMDATA        _IOR(SCULL_IOC_MAGIC, 0, int)
+#define SCULL_GETNUMREADER      _IOR(SCULL_IOC_MAGIC, 1, int)
+#define SCULL_GETBUFSIZE        _IOR(SCULL_IOC_MAGIC, 2, int)
+#define SCULL_SETBUFSIZE        _IOW(SCULL_IOC_MAGIC, 3, int)
 #define BUF_SIZE 256
 
 void print_main_menu();
@@ -21,13 +22,13 @@ const char *device = "/dev/scull_Node";
 
 int main (void)
 {
-
         int fd;
         int nb_data = 0;
         int arg;
-        int result;
+        long result;
         int i = 0;
         char c = -1;
+        int val;
         
         system("clear");
         print_main_menu();
@@ -39,44 +40,38 @@ int main (void)
                 case 'r': 
                         printf("Data length to read: ");
                         scanf("%d",&nb_data);
-                        fd = open(device, (O_RDONLY | O_NONBLOCK), S_IRUSR);
+                        fd = open(device, (O_RDONLY | O_NONBLOCK));
                         is_open(fd);
                         read(fd, read_buf, nb_data);
                         for (i = 0; i < nb_data; i++)
                                 printf("%c%s", read_buf[i], i == nb_data - 1 ? "\n" : "");
-                        close(fd);
                         break;
                 case 'R':
                         printf("Data length to read: ");
                         scanf("%d",&nb_data);
-                        fd = open(device, (O_RDONLY), S_IRUSR);
+                        fd = open(device, O_RDONLY);
                         is_open(fd);
                         read(fd, read_buf, nb_data);
                         for (i = 0; i < nb_data; i++)
                                 printf("%c%s", read_buf[i], i == nb_data - 1 ? "\n" : "");
-                        close(fd);
                         break;
                 case 'w':
                         printf("Data length to write: ");
                         scanf("%d",&nb_data);
-                        fd = open(device, (O_WRONLY | O_NONBLOCK), S_IWUSR);
+                        fd = open(device, (O_WRONLY | O_NONBLOCK));
                         is_open(fd);
                         for (i = 0; i < nb_data; i++)
                                 write_buf[i] = i + 0x20;
                         write(fd, write_buf, nb_data);
-                        printf("%s\n",write_buf);
-                        close(fd);
                         break;
                 case 'W':
                         printf("Data length to write: ");
                         scanf("%d",&nb_data);
-                        fd = open(device, (O_WRONLY), S_IWUSR);
+                        fd = open(device, (O_WRONLY));
                         is_open(fd);
                         for (i = 0; i < nb_data; i++)
                                 write_buf[i] = i + 0x20;
                         write(fd, write_buf, nb_data);
-                        printf("%s\n",write_buf);
-                        close(fd);
                         break;
                 case 'x':
                         printf("Data length to write: ");
@@ -87,7 +82,6 @@ int main (void)
                                 write_buf[i] = i + 0x20;
                         write(fd, write_buf, nb_data);
                         printf("%s\n",write_buf);
-                        close(fd);
                         break;
                 case 'X':
                         printf("Data length to write: ");
@@ -98,15 +92,18 @@ int main (void)
                                 write_buf[i] = i + 0x20;
                         write(fd, write_buf, nb_data);
                         printf("%s\n",write_buf);
-                        close(fd);
                         break;
 		case 'i':
+
                         print_ioctl_menu();
                         while (c != 'q') {
                                 printf("ioctl> ");
                                 while ((c = getchar()) == '\n'){}
+                                fd = open("/dev/scull_Node", O_RDONLY);
+                                is_open(fd);
                                 switch (c) {
                                         case '0' : 
+                                                printf(" %c\n", c);
                                                 result = ioctl(fd, SCULL_GETNUMDATA, &arg);
                                                 printf("Data length: %d\n", arg);
                                                 break;
@@ -122,11 +119,13 @@ int main (void)
                                                 printf("New buffer size: ");
                                                 scanf("%d", &arg);
                                                 result = ioctl(fd, SCULL_SETBUFSIZE, &arg);
-                                                printf("Result: %d\n", result);
+                                                if (result == -1)
+                                                        printf("Must be root\n");
                                                 break;
                                         default:
                                                 break;
                                 }
+                                close(fd);
                         }
                         c = -1;     
                         break;
@@ -136,8 +135,11 @@ int main (void)
                 default:
                         break;
                 }
+                memset(write_buf, 0 , sizeof(write_buf));
+                memset(read_buf, 0 , sizeof(read_buf));
 
         }
+        close(fd);
         return EXIT_SUCCESS;
 }
 
@@ -155,6 +157,8 @@ void print_main_menu()
         printf(" R : blocking read\n");
         printf(" w : non-blocking write\n");
         printf(" W : blocking write\n");
+        printf(" x : non-blocking read and write\n");
+        printf(" X : blocking read and write\n");
         printf(" i : ioctl\n\n");
         printf(" m : show menu\n");
         printf(" q : quit\n");

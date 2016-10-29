@@ -8,7 +8,8 @@ struct file_operations scull_fops = {
 	.read		=	scull_read,
 	.write	        =	scull_write,
 	.open		=	scull_open,
-	.release	=	scull_release
+	.release	=	scull_release,
+        .unlocked_ioctl =       scull_ioctl
 };
 
 void debug_buf(struct ring_buffer *buf) 
@@ -26,6 +27,8 @@ int buf_in(struct ring_buffer *buf, unsigned char *data)
         buf->buf_empty = 0;
         buf->buffer[buf->in_idx] = *data;
         buf->in_idx = (buf->in_idx + 1) % buf->buf_size;
+        buf->count++;
+
         if (buf->in_idx == buf->out_idx)
               buf->buf_full = 1;
 #if DEBUG
@@ -41,6 +44,8 @@ int buf_out(struct ring_buffer *buf, unsigned char *data)
         buf->buf_full = 0;
         *data = buf->buffer[buf->out_idx];
         buf->out_idx = (buf->out_idx + 1) % buf->buf_size;
+        buf->count--;
+
         if (buf->out_idx == buf->in_idx)
                 buf->buf_empty = 1;
 #if DEBUG
@@ -52,9 +57,9 @@ int buf_out(struct ring_buffer *buf, unsigned char *data)
 
 int scull_open(struct inode *inode, struct file *filp)
 {
-
         printk(KERN_WARNING"scull_open\n");
-
+        printk(KERN_WARNING"ACCMODE %d\n",(filp->f_flags & O_ACCMODE));
+        
         switch ((filp->f_flags & O_ACCMODE)) {
         down_interruptible(&scull_dev.sem_buf);
         case O_RDONLY:
@@ -77,32 +82,34 @@ int scull_open(struct inode *inode, struct file *filp)
                 break;
         }
         up(&scull_dev.sem_buf);
-        printk(KERN_WARNING"nb: reader = %d | writer = %d ", 
+        printk("%s nb: reader = %d | writer = %d \n",__FUNCTION__,
                         scull_dev.num_reader, scull_dev.num_writer);
         return 0;
 }
 
 int scull_release(struct inode *inode, struct file *filp)
 {
-        
         printk(KERN_WARNING"scull_release\n");
 
         switch (filp->f_flags & O_ACCMODE) {
-        down_interruptible(&scull_dev.sem_buf);
+        //down_interruptible(&scull_dev.sem_buf);
         case O_RDONLY:
+                printk("Read only\n");
                 scull_dev.num_reader--;
                 break;
         case O_WRONLY:
-                scull_dev.num_writer--;
+                printk("Write only\n");
+                scull_dev.num_writer = 0;
                 break;
         case O_RDWR:
-                scull_dev.num_writer--;
+                printk("Read and write\n");
+                scull_dev.num_writer = 0;
                 break;
         default:
                 break;
         }
-        up(&scull_dev.sem_buf);
-        printk(KERN_WARNING"nb: reader = %d | writer = %d ", 
+        //up(&scull_dev.sem_buf);
+        printk("%s nb: reader = %d | writer = %d \n",__FUNCTION__,
                         scull_dev.num_reader, scull_dev.num_writer);
         return 0;
 }
@@ -111,43 +118,53 @@ static ssize_t scull_read(struct file *filp, char __user *buf, size_t count,
                 loff_t *f_pos) 
 {
         ssize_t  retval = 0; 
-        int i,  lu, done, max, to_user;
-        i = 0;
-        lu = 0;
-        done = 0;
-        max = 0;
-        to_user = 0;
+        int i;
         
-        if ((filp->f_flags & O_NONBLOCK) == 0) {
-                if (down_trylock(&scull_dev.sem_buf))
-                        return -EAGAIN;
-        }
-        else if (down_interruptible(&scull_dev.sem_buf))
-                return -ERESTARTSYS;
-
-        while (count > 0) {
-            /* max buffer size */
-            max = count > DEFAULT_RWSIZE ? DEFAULT_RWSIZE : count;
-            printk(KERN_ALERT"%s to_user: %d\n", __FUNCTION__, max);
-
-            for (i = 0; i < max; i++) {
-                    /* dequeue buffer */
-                    if (buf_out(&ring_buf, &scull_dev.read_buf[i]) == -1)
-                            break;
-                    to_user++;
-                    printk(KERN_ALERT"to_user: %d\n",to_user);
+        printk("%s flag = %d \n",__FUNCTION__,(filp->f_flags & O_NONBLOCK));
+        /* NO-NBLOCKING */
+        if (filp->f_flags & O_NONBLOCK) {
+                if (down_trylock(&scull_dev.sem_buf)) {
+                        return -EAGAIN; /* Try again */
+                }
+                printk("%s NON BLOCKING\n",__FUNCTION__);
+        } else {
+            printk("%s BLOCKING Semaphore aquired\n",__FUNCTION__);
+            if(down_interruptible(&scull_dev.sem_buf)) {
+                printk("%s signal received, semaphore not acquired \n",__FUNCTION__);
+                return -ERESTARTSYS; /* Interrupted system call should be restarted */
             }
-            if (copy_to_user(buf, scull_dev.read_buf, to_user)) {
-                    retval = -EFAULT;
-                    up (&scull_dev.sem_buf);
-            }
-            buf += to_user;
-            to_user = 0;
-            count -= max;
-            printk(KERN_ALERT"count %lu\n",count);
         }
+        
 
+        if (!ring_buf.buf_empty) {
+                for(i = 0; i < count; i++){
 
+                        buf_out(&ring_buf, &scull_dev.read_buf[i]);
+
+                        printk(KERN_WARNING"%s count = %d ch = %c\n",
+                                __FUNCTION__, i, scull_dev.read_buf[i]);
+                }
+
+                /*
+                 * Copy data from kernel space to user space.
+                 * Returns number of bytes that could not be copied.
+                 * On success, this will be zero.
+                 */
+                if(copy_to_user(buf, scull_dev.read_buf, count)) {
+                        retval = -EFAULT; /* Bad address */
+                        goto out;
+                }
+                /* release the given semaphore */
+                up(&scull_dev.sem_buf);
+
+                return 1;
+        } else {
+                printk(KERN_WARNING"%s count = %lu ch = no char\n",
+                        __FUNCTION__, count);
+                up(&scull_dev.sem_buf);
+                return 0;
+        }
+out:
         up(&scull_dev.sem_buf);
         return retval;
 }
@@ -155,24 +172,27 @@ static ssize_t scull_read(struct file *filp, char __user *buf, size_t count,
 static ssize_t scull_write(struct file *filp, const char __user *buf, 
                 size_t count, loff_t *f_pos) 
 {
-        //printk(KERN_ERR "count %lu | user: %s \n", count, &buf);
-
         ssize_t retval = 0;
-        int i, done, max;
-        i = 0;
-        done = 0;
-        max = 0;
+        int i;
         
-        if ((filp->f_flags & O_NONBLOCK) == 0) {
-                if (down_trylock(&scull_dev.sem_buf))
-                        return -EAGAIN;
+        printk("%s flag = %d \n",__FUNCTION__,(filp->f_flags & O_NONBLOCK));
+        /* BLOCKING */
+        if (filp->f_flags & O_NONBLOCK) {
+                if (down_trylock(&scull_dev.sem_buf)) {
+                        return -EAGAIN; /* Try again */
+                }
+                printk("%s NON BLOCKING\n",__FUNCTION__);
+        } else {
+            printk("%s BLOCKING Semaphore aquired\n",__FUNCTION__);
+            if(down_interruptible(&scull_dev.sem_buf)) {
+                printk("%s signal received, semaphore not acquired \n",__FUNCTION__);
+                return -ERESTARTSYS; /* Interrupted system call should be restarted */
+            }
         }
-        else if (down_interruptible(&scull_dev.sem_buf))
-                return -ERESTARTSYS;
 
-        while (count > 0) {
-                max = count > DEFAULT_RWSIZE ? DEFAULT_RWSIZE : count;
-                printk(KERN_ALERT"%s -- count %lu\n", __FUNCTION__, count);
+        printk("%s aaa \n",__FUNCTION__);
+        if (!ring_buf.buf_full) {
+                        printk("%s bbb \n",__FUNCTION__);
                 /*
                  * Copy data from user space to kernel space.
                  * Returns number of bytes that could not be copied. 
@@ -180,31 +200,41 @@ static ssize_t scull_write(struct file *filp, const char __user *buf,
                  * If some data could not be copied, this function will pad 
                  * the copied data to the requested size using zero bytes.
                  */
-                if (copy_from_user(&scull_dev.write_buf[0], buf, max)) {
-                        retval = -EFAULT;
+                if(copy_from_user(scull_dev.write_buf, buf, count)) {
+                        printk("%s ccc \n",__FUNCTION__);
+                        retval = -EFAULT; /* Bad address */
+                        goto out;
                 }
-                for (i = 0; i < max; i++) {
-                        if (buf_in(&ring_buf, &scull_dev.write_buf[i]) == -1)
-                                break;
-                        printk(KERN_ALERT"%s -- i %d\n", __FUNCTION__, i);
-                }
-                count -= max;
-        }
-        up(&scull_dev.sem_buf);
 
+                for(i = 0; i < count; i++){
+
+                        buf_in(&ring_buf, &scull_dev.write_buf[i]);
+
+                        printk(KERN_WARNING"%s count = %d ch = %c\n",
+                                __FUNCTION__, i, scull_dev.write_buf[i]);
+                }
+                up(&scull_dev.sem_buf);
+
+                return 1;
+        } else {
+                printk(KERN_WARNING"%s count = %lu ch = no place\n",
+                        __FUNCTION__, count);
+                up(&scull_dev.sem_buf);
+                return 0;
+        }
+out:
+        up(&scull_dev.sem_buf);
         return retval; 
 }
+
 long scull_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
+    long retval = 0;
     int err = 0;
-    int retval = 0;
     int count = 0;
     int nSize = 0;
     int i;
     unsigned char  *temp_rb, *temp_rb_del;
-
-    printk(KERN_WARNING"scull_ioctl\n");
-
 
     if (_IOC_TYPE(cmd) != SCULL_IOC_MAGIC) 
             return -ENOTTY;
@@ -221,8 +251,9 @@ long scull_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
             return -EFAULT;
 
     switch (cmd) {
-            case SCULL_GETNUMDATA :   
+            case SCULL_GETNUMDATA :
                     retval = __put_user(ring_buf.count, (int __user *)arg);
+                    printk("GETNUMDATA ret %ld | arg %lu \n", retval, arg );
                     break;
 
             case SCULL_GETNUMREADER :   
@@ -299,6 +330,7 @@ static int __init scull_init (void)
         if (!ring_buf.buffer)
                 return -ENOMEM; 
         ring_buf.buf_empty = 1;
+        ring_buf.count     = 0;
         ring_buf.buf_full  = 0;
         ring_buf.buf_size  = DEFAULT_BUFSIZE;
         ring_buf.in_idx    = 0;
