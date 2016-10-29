@@ -38,8 +38,6 @@ all:
 #                                                                              #
 ################################################################################
 load: all
-	$(call FileExist, $(MODULE_OBJECT))
-#	$(call ModuleExist, $(MODULE_NAME))
 	sudo insmod $(MODULE_OBJECT)
 	@make --silent info  
 	@make --silent clean
@@ -48,17 +46,12 @@ load: all
 ################################################################################
 #                                                                              #
 #      Unload the module:                                                      #
-#      			 - kill process(es) which use the device otherwise     #
-#      			 - the module is locked                                #
 #                        - if module exist it will be remove else exit         #
-#                        - remove device                                       #
 #                                                                              #
 ################################################################################
 unload:
-#	pkill -f $(MODULE_NAME)_Node
 	@sudo rmmod $(MODULE_NAME) 2>/dev/null || \
 	    ($(ERROR) "No module" $(MODULE_NAME); exit 1)
-#	sudo rm /dev/$(MODULE_NAME)_Node 
 ################################################################################
 #                                                                              #
 #      give info about module else print error                                 #
@@ -92,20 +85,3 @@ run: app clean
 
 root: app clean
 	sudo $(BIN_DIR)/ui
-################################################################################
-#                                                                              #
-#      @function: FileExist                                                    #
-#      @param   : $1 = file name                                               #
-#      @description: check if file *.ko exist else exit                        #
-#                                                                              #
-#                                                                              #
-################################################################################
-define FileExist
-@[ -f $(MODULE_OBJECT) ] || ($(ERROR) "File $(1) not found" ; \
-   $(INFO) "You must run make before" ; exit 1)
-endef
-
-define ModuleExist
-@lsmod  | grep $(1) && ($(INFO) "Module $(1) already loaded" ; exit 1)
-endef
-
